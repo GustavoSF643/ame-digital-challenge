@@ -1,4 +1,4 @@
-from django.http.response import HttpResponseNotFound
+import django
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
@@ -21,16 +21,42 @@ class PlanetsView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request):
-        planet_data = request.data
+        try:
+            planet_data = request.data
 
-        serializer = PlanetSerializer(data=planet_data)
+            def get_planet(url, planet_name):
+                import requests
+                import json
 
-        serializer.is_valid(raise_exception=True)
+                planets = requests.get(url)
+                planets_content = json.loads(planets.content)
 
-        serializer.save()
+                planet = filter(lambda x: [y for y in x if x['name'] == planet_name], planets_content["results"])
+                planet_list = list(planet)
+                
+                if not planet_list and planets_content['next']:
+                    return get_planet(planets_content['next'], planet_name)
 
-        return Response(serializer.validated_data, status=status.HTTP_201_CREATED)
+                if len(planet_list) > 0:
+                    return planet_list[0]
 
+
+            planet = get_planet('https://swapi.dev/api/planets', planet_data['name'])
+
+            if not planet:
+                return Response({"erros": "Planet not found."}, status=status.HTTP_404_NOT_FOUND)
+
+            planet_data['movie_appearances'] = len(planet['films'])
+
+            serializer = PlanetSerializer(data=planet_data)
+
+            serializer.is_valid(raise_exception=True)
+
+            serializer.save()
+
+            return Response(serializer.validated_data, status=status.HTTP_201_CREATED)
+        except django.db.utils.IntegrityError:
+            return Response({"erros": "Planet already registered."}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
 class PlanetsRetrieveView(APIView):
     def get(self, request, id):
